@@ -114,6 +114,11 @@ header p {
   outline-offset: 2px;
 }
 
+#record-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 
 #player {
   position: fixed;

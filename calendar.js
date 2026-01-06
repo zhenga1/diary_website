@@ -5,6 +5,18 @@ const playerDate = document.getElementById("player-date");
 const closeBtn = document.getElementById("close");
 const recordBtn = document.getElementById("record-btn");
 
+let recorder = null;
+let recordedChunks = [];
+let recording = false;
+
+
+// check to see if recording works
+if (!navigator.mediaDevices || !window.MediaRecorder) {
+  recordBtn.disabled = true;
+  recordBtn.textContent = "Recording not supported";
+}
+
+
 const year = 2026;
 const monthNames = [
   "January","February","March","April","May","June",
@@ -66,10 +78,17 @@ monthNames.forEach((name, month) => {
         audio.pause();
         audio.innerHTML = "";
         
+        let hasPlayableAudio = false;
         // if can play then mark
         audio.oncanplay = () => {
+            hasPlayableAudio = true;
             dayEl.classList.add("has-audio");
         };
+        audio.onerror = () => {
+            if (!hasPlayableAudio) {
+                showNoAudioMessage();
+            }
+        }
         // Add sources in priority order
         AUDIO_EXTS.forEach(ext => {
             const source = document.createElement("source");
@@ -89,6 +108,55 @@ monthNames.forEach((name, month) => {
 
   monthsEl.appendChild(monthEl);
 });
+
+recordBtn.onclick = async () => {
+  if (!currentDateStr) return;
+
+  // Stop recording
+  if (recording) {
+    recorder.stop();
+    recordBtn.textContent = "🎙 Record";
+    recording = false;
+    return;
+  }
+
+  // Start recording
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+  recorder = new MediaRecorder(stream);
+  recordedChunks = [];
+  recording = true;
+
+  recordBtn.textContent = "⏹ Stop";
+
+  recorder.ondataavailable = e => {
+    if (e.data.size > 0) recordedChunks.push(e.data);
+  };
+
+  recorder.onstop = () => {
+    const blob = new Blob(recordedChunks, { type: recorder.mimeType });
+    const url = URL.createObjectURL(blob);
+
+    // Play immediately
+    audio.pause();
+    audio.innerHTML = "";
+    audio.src = url;
+    audio.load();
+    audio.play();
+
+    // Enable download
+    const link = document.getElementById("download-link");
+    link.href = url;
+    link.download = `${currentDateStr}.webm`;
+    link.style.display = "inline-block";
+
+    // Mark day as having audio
+    dayEl?.classList.add("has-audio");
+  };
+
+  recorder.start();
+};
+
 
 closeBtn.onclick = () => {
   audio.pause();
