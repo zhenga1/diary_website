@@ -1,2 +1,3 @@
 # Diary Website
-![Uploading chrome_qhttsydQcz.png…]()
+
+![Demo screenshot](screenshot_web.png)
