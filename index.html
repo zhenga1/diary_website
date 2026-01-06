@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>2026 Audio Diary</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header>
+    <h1>2026</h1>
+    <p>One recording a day.</p>
+  </header>
+
+  <main id="months"></main>
+
+  <!-- player -->
+  <div id="player" class="hidden">
+    <div class="player-card">
+        <button id="close">×</button>
+        <p id="player-date"></p>
+        <audio id="audio" controls></audio>
+        <button id="record-btn">🎙 Record</button>
+    </div>
+   </div>
+  <script src="calendar.js"></script>
+</body>
+</html>
