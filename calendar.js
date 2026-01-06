@@ -11,10 +11,23 @@ const monthNames = [
   "July","August","September","October","November","December"
 ];
 
+const today = new Date();
+const todayStr =
+  today.getFullYear() + "-" +
+  String(today.getMonth() + 1).padStart(2, "0") + "-" +
+  String(today.getDate()).padStart(2, "0");
+
 let currentDateStr = null;
 
 // Abstraction so we can easily check for multiple audio formats
 const AUDIO_EXTS = ["mp3", "m4a", "wav", "ogg"];
+
+const AUDIO_MIME = {
+  mp3: "audio/mpeg",
+  m4a: "audio/mp4",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+};
 
 // async function findAudioForDate(dateStr) {
 //   for (const ext of AUDIO_EXTS) {
@@ -41,6 +54,10 @@ monthNames.forEach((name, month) => {
     dayEl.className = "day";
     dayEl.textContent = day;
 
+    if (dateStr === todayStr) {
+        dayEl.classList.add("today");
+    }
+
     dayEl.onclick = () => {
         currentDateStr = dateStr;
         playerDate.textContent = dateStr;
@@ -48,12 +65,16 @@ monthNames.forEach((name, month) => {
         // Clear previous sources
         audio.pause();
         audio.innerHTML = "";
-
+        
+        // if can play then mark
+        audio.oncanplay = () => {
+            dayEl.classList.add("has-audio");
+        };
         // Add sources in priority order
         AUDIO_EXTS.forEach(ext => {
             const source = document.createElement("source");
             source.src = `audio/${dateStr}.${ext}`;
-            //source.type = `audio/${ext}`; breaks things for m4a
+            source.type = AUDIO_MIME[ext];
             audio.appendChild(source);
         });
 
