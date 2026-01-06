@@ -16,16 +16,16 @@ let currentDateStr = null;
 // Abstraction so we can easily check for multiple audio formats
 const AUDIO_EXTS = ["mp3", "m4a", "wav", "ogg"];
 
-async function findAudioForDate(dateStr) {
-  for (const ext of AUDIO_EXTS) {
-    const path = `audio/${dateStr}.${ext}`;
-    try {
-      const res = await fetch(path, { method: "HEAD" });
-      if (res.ok) return path;
-    } catch {}
-  }
-  return null;
-}
+// async function findAudioForDate(dateStr) {
+//   for (const ext of AUDIO_EXTS) {
+//     const path = `audio/${dateStr}.${ext}`;
+//     try {
+//       const res = await fetch(path, { method: "HEAD" });
+//       if (res.ok) return path;
+//     } catch {}
+//   }
+//   return null;
+// }
 
 monthNames.forEach((name, month) => {
   const monthEl = document.createElement("section");
@@ -41,18 +41,36 @@ monthNames.forEach((name, month) => {
     dayEl.className = "day";
     dayEl.textContent = day;
 
-    const audioPath = `audio/${dateStr}.mp3`;
+    let audioPath = null;
 
-    fetch(audioPath, { method: "HEAD" }).then(r => {
-      if (r.ok) dayEl.classList.add("has-audio");
-    });
+    // findAudioForDate(dateStr).then(path => {
+    //     if (path) {
+    //         audioPath = path;
+    //         dayEl.classList.add("has-audio");
+    //     }
+    // })
+    // click behavior for each day
+    dayEl.onclick = async () => {
+        currentDateStr = dateStr;
+        playerDate.textContent = dateStr;
 
-    dayEl.onclick = () => {
-      currentDateStr = dateStr;
-      playerDate.textContent = dateStr;
-      audio.src = audioPath;
-      player.classList.remove("hidden");
-    };
+        AUDIO_EXTS.forEach(ext => {
+            const src = document.createElement("source");
+            src.src = `audio/${dateStr}.${ext}`;
+            src.type = `audio/${ext}`;
+            audio.appendChild(src);
+            player.classList.remove("hidden");
+        });
+        // Check to see if audio Path is cached
+        // if (!audioPath) {
+        //     audioPath = await findAudioForDate(dateStr);
+        // }
+
+        // if (audioPath) {
+        //     audio.src = audioPath;
+        //     player.classList.remove("hidden");
+        // }
+    }
 
     daysEl.appendChild(dayEl);
   }
