@@ -41,37 +41,28 @@ monthNames.forEach((name, month) => {
     dayEl.className = "day";
     dayEl.textContent = day;
 
-    let audioPath = null;
-
-    // findAudioForDate(dateStr).then(path => {
-    //     if (path) {
-    //         audioPath = path;
-    //         dayEl.classList.add("has-audio");
-    //     }
-    // })
-    // click behavior for each day
-    dayEl.onclick = async () => {
+    dayEl.onclick = () => {
         currentDateStr = dateStr;
         playerDate.textContent = dateStr;
 
+        // Clear previous sources
+        audio.pause();
+        audio.innerHTML = "";
+
+        // Add sources in priority order
         AUDIO_EXTS.forEach(ext => {
-            const src = document.createElement("source");
-            src.src = `audio/${dateStr}.${ext}`;
-            src.type = `audio/${ext}`;
-            audio.appendChild(src);
-            player.classList.remove("hidden");
+            const source = document.createElement("source");
+            source.src = `audio/${dateStr}.${ext}`;
+            //source.type = `audio/${ext}`; breaks things for m4a
+            audio.appendChild(source);
         });
-        // Check to see if audio Path is cached
-        // if (!audioPath) {
-        //     audioPath = await findAudioForDate(dateStr);
-        // }
 
-        // if (audioPath) {
-        //     audio.src = audioPath;
-        //     player.classList.remove("hidden");
-        // }
-    }
+        // Ask browser to resolve the first valid source
+        audio.load();
 
+        // Show player AFTER sources are set
+        player.classList.remove("hidden");
+    };
     daysEl.appendChild(dayEl);
   }
 
