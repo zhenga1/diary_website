@@ -51,7 +51,7 @@ const AUDIO_MIME = {
 //   }
 //   return null;
 // }
-
+let before_today = true;
 monthNames.forEach((name, month) => {
   const monthEl = document.createElement("section");
   monthEl.className = "month";
@@ -60,6 +60,7 @@ monthNames.forEach((name, month) => {
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
 
+  
   for (let day = 1; day <= daysInMonth; day++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const dayEl = document.createElement("div");
@@ -68,6 +69,12 @@ monthNames.forEach((name, month) => {
 
     if (dateStr === todayStr) {
         dayEl.classList.add("today");
+        before_today = false;
+    }
+    if (before_today) {
+        dayEl.classList.add("past");
+    } else {
+        dayEl.classList.add("future");
     }
 
     dayEl.onclick = () => {

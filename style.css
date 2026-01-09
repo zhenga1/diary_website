@@ -114,6 +114,21 @@ header p {
   outline-offset: 2px;
 }
 
+.day.past {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
+/* .day.past.has-audio {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+} */
+
+.day.future {
+  cursor: default;
+}
+
 #record-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
