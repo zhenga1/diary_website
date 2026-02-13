@@ -8,6 +8,7 @@ const recordBtn = document.getElementById("record-btn");
 let recorder = null;
 let recordedChunks = [];
 let recording = false;
+let currentDayEl = null;
 
 
 // check to see if recording works
@@ -51,14 +52,29 @@ const AUDIO_MIME = {
 //   }
 //   return null;
 // }
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 let before_today = true;
 monthNames.forEach((name, month) => {
   const monthEl = document.createElement("section");
   monthEl.className = "month";
   monthEl.innerHTML = `<h2>${name}</h2><div class="days"></div>`;
-  const daysEl = monthEl.querySelector(".days");
+  
 
+
+  const daysEl = monthEl.querySelector(".days");
+  WEEKDAYS.forEach(day => {
+        const label = document.createElement("div");
+        label.className = "weekday";
+        label.textContent = day;
+        daysEl.appendChild(label);
+  });
   const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay(); // 0=Sun
+  for (let i = 0; i < firstDay; i++) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    daysEl.appendChild(empty);
+  }
 
   
   for (let day = 1; day <= daysInMonth; day++) {
@@ -78,6 +94,7 @@ monthNames.forEach((name, month) => {
     }
 
     dayEl.onclick = () => {
+        currentDayEl = dayEl;
         currentDateStr = dateStr;
         playerDate.textContent = dateStr;
 
@@ -158,7 +175,7 @@ recordBtn.onclick = async () => {
     link.style.display = "inline-block";
 
     // Mark day as having audio
-    dayEl?.classList.add("has-audio");
+    currentDayEl?.classList.add("has-audio");
   };
 
   recorder.start();
