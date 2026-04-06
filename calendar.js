@@ -181,7 +181,132 @@ recordBtn.onclick = async () => {
   recorder.start();
 };
 
+const analyzeBtn = document.getElementById("analyze-btn");
+const statsOutput = document.getElementById("stats-output");
 
+// Get the longest and shortest audio descriptions
+// HELPER FUNCTION
+function getAudioDuration(dateStr) {
+  return new Promise((resolve) => {
+    let extIndex = 0;
+
+    function tryNext() {
+      if (extIndex >= AUDIO_EXTS.length) {
+        resolve(null);
+        return;
+      }
+
+      const ext = AUDIO_EXTS[extIndex++];
+      const testAudio = new Audio();
+      let done = false;
+
+      const finish = (value) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+
+        testAudio.onloadedmetadata = null;
+        testAudio.onerror = null;
+        testAudio.src = "";
+        resolve(value);
+      };
+
+      const timer = setTimeout(() => {
+        if (done) return;
+        done = true;
+        testAudio.onloadedmetadata = null;
+        testAudio.onerror = null;
+        testAudio.src = "";
+        tryNext();
+      }, 1200);
+
+      testAudio.preload = "metadata";
+      testAudio.onloadedmetadata = () => {
+        finish(testAudio.duration);
+      };
+
+      testAudio.onerror = () => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        testAudio.onloadedmetadata = null;
+        testAudio.onerror = null;
+        testAudio.src = "";
+        tryNext();
+      };
+
+      testAudio.src = `audio/${dateStr}.${ext}`;
+      testAudio.load();
+    }
+
+    tryNext();
+  });
+}
+
+// Force a frame update
+function nextFrame() {
+  return new Promise(requestAnimationFrame);
+} 
+
+// Format time in MM:SS
+function formatTime(seconds) {
+  if (seconds == null || !isFinite(seconds)) return "0:00";
+
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, "0")}`;
+}
+
+// Main segment
+analyzeBtn.onclick = async () => {
+  statsOutput.textContent = "Analyzing...";
+
+  let longest = { duration: 0, date: null };
+  let shortest = { duration: Infinity, date: null };
+
+  const year = 2026;
+
+  let breakOuter = false;
+  for (let month = 0; month < 12; month++) {
+    if (breakOuter) break;
+    const days = new Date(year, month + 1, 0).getDate();
+
+    for (let day = 1; day <= days; day++) {
+
+      const dateStr =
+        `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+      // ✅ STOP at today (correct)
+      if (dateStr >= todayStr){
+        breakOuter = true;
+        break;
+      }
+
+      statsOutput.textContent = `Analyzing ${dateStr}...`;
+
+      // 👇 FORCE UI update 
+      await nextFrame();
+      const duration = await getAudioDuration(dateStr);
+
+      if (duration === null) continue;
+
+      if (duration > longest.duration) {
+        longest = { duration, date: dateStr };
+      }
+
+      if (duration < shortest.duration) {
+        shortest = { duration, date: dateStr };
+      }
+    }
+  }
+
+  // 👇 FORCE UI update
+  await nextFrame();
+  statsOutput.innerHTML = `
+    🟢 Longest: ${longest.date} (${formatTime(longest.duration)})<br>
+    🔵 Shortest: ${shortest.date} (${formatTime(shortest.duration)})
+  `;
+};
 closeBtn.onclick = () => {
   audio.pause();
   player.classList.add("hidden");
