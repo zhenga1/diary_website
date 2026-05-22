@@ -42,7 +42,6 @@ const SpeechRecognitionCtor =
 
 if (!SpeechRecognitionCtor) {
   speechBtn.disabled = true;
-  speechAudioBtn.disabled = true;
   speechBtn.textContent = "Dictation unavailable";
 } else {
   speechSupported = true;
@@ -135,7 +134,7 @@ function setLaunchHelpStatus(message, isWarning = false) {
 function setNotesInputEnabled(enabled) {
   dayNoteInput.disabled = !enabled;
   speechBtn.disabled = !enabled || !speechSupported;
-  speechAudioBtn.disabled = !enabled || !speechSupported;
+  speechAudioBtn.disabled = !enabled;
   if (!enabled) {
     stopSpeechRecognition();
     dayNoteInput.value = "";
@@ -179,95 +178,57 @@ function stopSpeechRecognition() {
 
 async function startSavedAudioTranscription() {
   console.log("[saved-audio-transcription] start", {
-    hasSpeechRecognition: Boolean(speechRecognition),
     currentDateStr,
     noteInputDisabled: dayNoteInput.disabled,
-    currentSrc: audio.currentSrc,
-    src: audio.src,
-    readyState: audio.readyState,
-    paused: audio.paused,
   });
 
-  if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
-
-  const playableSource = audio.currentSrc || audio.src;
-  console.log("[saved-audio-transcription] resolved playable source", {
-    playableSource,
-  });
-
-  if (!playableSource) {
-    console.log("[saved-audio-transcription] abort: no playable source");
-    setSpeechStatus("No saved audio is loaded for this day yet.");
-    return;
-  }
+  if (!currentDateStr || dayNoteInput.disabled) return;
 
   transcribingSavedAudio = true;
-  console.log("[saved-audio-transcription] marked transcribingSavedAudio=true");
   updateSpeechButton();
-  hideSpeechStatus();
-  speechRecognition.lang = navigator.language || "en-US";
-  console.log("[saved-audio-transcription] configured speech recognition", {
-    lang: speechRecognition.lang,
-  });
-
-  audio.pause();
-  audio.currentTime = 0;
-  console.log("[saved-audio-transcription] reset audio before playback", {
-    currentTime: audio.currentTime,
-    paused: audio.paused,
-  });
-  audio.onended = () => {
-    console.log("[saved-audio-transcription] audio ended", {
-      transcribingSavedAudio,
-      currentTime: audio.currentTime,
-      duration: audio.duration,
-    });
-    if (!transcribingSavedAudio) return;
-    transcribingSavedAudio = false;
-    console.log("[saved-audio-transcription] marked transcribingSavedAudio=false from onended");
-    updateSpeechButton();
-    stopSpeechRecognition();
-    setSpeechStatus("Saved-audio transcription finished. Review the note text for accuracy.");
-  };
+  setSpeechStatus("Transcribing saved audio locally...");
 
   try {
-    console.log("[saved-audio-transcription] attempting audio.play()");
-    await audio.play();
-    console.log("[saved-audio-transcription] audio.play() resolved", {
-      currentTime: audio.currentTime,
-      paused: audio.paused,
-      readyState: audio.readyState,
+    const response = await fetch(`/api/transcriptions/${currentDateStr}`, {
+      method: "POST",
     });
-  } catch {
-    console.log("[saved-audio-transcription] audio.play() failed", {
-      currentTime: audio.currentTime,
-      paused: audio.paused,
-      readyState: audio.readyState,
-    });
-    transcribingSavedAudio = false;
-    updateSpeechButton();
-    setSpeechStatus("Audio playback could not start. Click play once, then try saved-audio transcription again.");
-    return;
-  }
 
-  try {
-    console.log("[saved-audio-transcription] attempting speechRecognition.start()", {
-      speechListening,
-      transcribingSavedAudio,
+    if (!response.ok) {
+      const message = await response.text();
+      throw new Error(message || `HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const transcript = normalizeNote(String(payload.transcript || "")).trim();
+    console.log("[saved-audio-transcription] response", {
+      model: payload.model,
+      language: payload.language,
+      audioPath: payload.audio_path,
+      transcriptLength: transcript.length,
     });
-    speechRecognition.start();
-    console.log("[saved-audio-transcription] speechRecognition.start() returned without throwing");
-    setSpeechStatus("Playing the saved entry and listening for dictated text. Speakers or Stereo Mix work better than headphones.");
+
+    if (!transcript) {
+      setSpeechStatus("Transcription finished, but no speech text was returned.");
+      return;
+    }
+
+    const existingNote = normalizeNote(dayNoteInput.value);
+    const transcriptBlock = noteHasContent(existingNote)
+      ? `${existingNote.trim()}\n\n[Transcript from saved audio]\n${transcript}`
+      : transcript;
+
+    if (normalizeNote(dayNoteInput.value) !== transcriptBlock) {
+      dayNoteInput.value = transcriptBlock;
+      dayNoteInput.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+
+    setSpeechStatus(`Transcribed with ${payload.model}. Review and edit before keeping it.`);
   } catch (error) {
-    console.log("[saved-audio-transcription] speechRecognition.start() threw", {
-      error,
-      speechListening,
-      transcribingSavedAudio,
-    });
+    console.log("[saved-audio-transcription] failed", { error });
+    setSpeechStatus(`Saved-audio transcription failed. ${error.message || "See server logs."}`);
+  } finally {
     transcribingSavedAudio = false;
     updateSpeechButton();
-    audio.pause();
-    setSpeechStatus("Saved-audio transcription could not start. If dictation is already active, stop it and try again.");
   }
 }
 
@@ -549,7 +510,7 @@ monthNames.forEach((name, month) => {
         currentDateStr = dateStr;
         stopSpeechRecognition();
         hideSpeechStatus();
-        speechAudioBtn.disabled = !speechSupported;
+        speechAudioBtn.disabled = dayNoteInput.disabled;
         playerDate.textContent = dateStr;
         dayNoteInput.value = notesByDate[dateStr] || "";
         hideAudioStatus();
@@ -563,7 +524,7 @@ monthNames.forEach((name, month) => {
         audio.oncanplay = () => {
             hasPlayableAudio = true;
             dayEl.classList.add("has-audio");
-            speechAudioBtn.disabled = dayNoteInput.disabled || !speechSupported;
+            speechAudioBtn.disabled = dayNoteInput.disabled;
             hideAudioStatus();
         };
         audio.onerror = () => {
@@ -682,19 +643,12 @@ speechBtn.onclick = () => {
 
 
 speechAudioBtn.onclick = async () => {
-  console.log("Speech AUDIO button || Speech audio button clicked. Listening:", speechListening, "Transcribing saved audio:", transcribingSavedAudio);
-  
-  if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
-  console.log("Speech AUDIO button || Speech Recognition available")
-  if (speechListening || transcribingSavedAudio) {
-    stopSpeechRecognition();
-    audio.pause();
-    setSpeechStatus("Speech AUDIO button || Saved-audio transcription stopped.");
+  if (!currentDateStr || dayNoteInput.disabled) return;
+
+  if (transcribingSavedAudio) {
+    setSpeechStatus("Saved-audio transcription is already running.");
     return;
   }
-
-   console.log("Speech AUDIO button || Preparing to start speech recognition. ")
-
 
   await startSavedAudioTranscription();
 };
@@ -1195,7 +1149,7 @@ closeBtn.onclick = () => {
   audio.pause();
   stopSpeechRecognition();
   hideSpeechStatus();
-  speechAudioBtn.disabled = !speechSupported;
+  speechAudioBtn.disabled = dayNoteInput.disabled;
   player.classList.add("hidden");
 };
 
