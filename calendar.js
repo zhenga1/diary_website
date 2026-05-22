@@ -2,19 +2,50 @@ const monthsEl = document.getElementById("months");
 const player = document.getElementById("player");
 const audio = document.getElementById("audio");
 const playerDate = document.getElementById("player-date");
+const playerAudioStatus = document.getElementById("player-audio-status");
+const launchHelp = document.getElementById("launch-help");
+const launchHelpStatus = document.getElementById("launch-help-status");
 const closeBtn = document.getElementById("close");
+const dayNoteInput = document.getElementById("day-note");
+const notesDirStatus = document.getElementById("notes-dir-status");
 const recordBtn = document.getElementById("record-btn");
+const speechBtn = document.getElementById("speech-btn");
+const speechStatus = document.getElementById("speech-status");
 
 let recorder = null;
 let recordedChunks = [];
 let recording = false;
 let currentDayEl = null;
+let speechRecognition = null;
+let speechListening = false;
+let speechSupported = false;
+
+const dayElements = new Map();
+const notesByDate = {};
+
+let noteSaveTimeout = null;
+let noteSaveRevision = 0;
+let lastSavedRevision = -1;
 
 
 // check to see if recording works
 if (!navigator.mediaDevices || !window.MediaRecorder) {
   recordBtn.disabled = true;
   recordBtn.textContent = "Recording not supported";
+}
+
+const SpeechRecognitionCtor =
+  window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+if (!SpeechRecognitionCtor) {
+  speechBtn.disabled = true;
+  speechBtn.textContent = "Dictation unavailable";
+} else {
+  speechSupported = true;
+  speechRecognition = new SpeechRecognitionCtor();
+  speechRecognition.continuous = true;
+  speechRecognition.interimResults = true;
+  speechRecognition.lang = navigator.language || "en-US";
 }
 
 
@@ -41,6 +72,261 @@ const AUDIO_MIME = {
   wav: "audio/wav",
   ogg: "audio/ogg",
 };
+
+function normalizeNote(note) {
+  return note.replace(/\r\n/g, "\n");
+}
+
+function noteHasContent(note) {
+  return note.trim().length > 0;
+}
+
+function getNotePreview(note) {
+  return note.replace(/\s+/g, " ").trim().slice(0, 36);
+}
+
+function updateDayNoteUI(dayEl, note) {
+  const previewEl = dayEl.querySelector(".day-note-preview");
+  const normalized = normalizeNote(note || "");
+  const hasNote = noteHasContent(normalized);
+
+  dayEl.classList.toggle("has-note", hasNote);
+  previewEl.textContent = hasNote ? getNotePreview(normalized) : "";
+  dayEl.title = hasNote ? normalized : "";
+}
+
+function setNoteForDate(dateStr, note) {
+  const normalized = normalizeNote(note);
+  if (noteHasContent(normalized)) {
+    notesByDate[dateStr] = normalized;
+  } else {
+    delete notesByDate[dateStr];
+  }
+
+  const dayEl = dayElements.get(dateStr);
+  if (dayEl) {
+    updateDayNoteUI(dayEl, notesByDate[dateStr] || "");
+  }
+}
+
+function showAudioStatus(message) {
+  playerAudioStatus.textContent = message;
+  playerAudioStatus.classList.remove("hidden");
+}
+
+function hideAudioStatus() {
+  playerAudioStatus.textContent = "";
+  playerAudioStatus.classList.add("hidden");
+}
+
+function setNotesStatus(message) {
+  notesDirStatus.textContent = message;
+}
+
+function setLaunchHelpStatus(message, isWarning = false) {
+  launchHelpStatus.innerHTML = message;
+  launchHelp.classList.toggle("warning", isWarning);
+}
+
+function setNotesInputEnabled(enabled) {
+  dayNoteInput.disabled = !enabled;
+  speechBtn.disabled = !enabled || !speechSupported;
+  if (!enabled) {
+    stopSpeechRecognition();
+    dayNoteInput.value = "";
+  }
+}
+
+function setSpeechStatus(message) {
+  speechStatus.textContent = message;
+  speechStatus.classList.remove("hidden");
+}
+
+function hideSpeechStatus() {
+  speechStatus.textContent = "";
+  speechStatus.classList.add("hidden");
+}
+
+function updateSpeechButton() {
+  speechBtn.classList.toggle("is-listening", speechListening);
+  speechBtn.textContent = speechListening ? "Stop Dictation" : "Start Dictation";
+}
+
+function appendTranscriptToNote(transcript) {
+  const clean = transcript.replace(/\s+/g, " ").trim();
+  if (!clean || !currentDateStr) return;
+
+  const separator = dayNoteInput.value.trim().length > 0 ? " " : "";
+  dayNoteInput.value += `${separator}${clean}`;
+  dayNoteInput.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function stopSpeechRecognition() {
+  if (!speechRecognition || !speechListening) return;
+  speechRecognition.stop();
+}
+
+function initSpeechRecognition() {
+  if (!speechRecognition) return;
+
+  speechRecognition.onstart = () => {
+    speechListening = true;
+    updateSpeechButton();
+    setSpeechStatus("Listening. Speak now and your words will be added to the note.");
+  };
+
+  speechRecognition.onend = () => {
+    speechListening = false;
+    updateSpeechButton();
+    if (!speechStatus.textContent.includes("added")) {
+      setSpeechStatus("Dictation stopped.");
+    }
+  };
+
+  speechRecognition.onerror = (event) => {
+    speechListening = false;
+    updateSpeechButton();
+
+    if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+      setSpeechStatus("Microphone permission was blocked. Allow mic access for this site and try again.");
+      return;
+    }
+
+    if (event.error === "no-speech") {
+      setSpeechStatus("No speech detected. Try again and speak a little closer to the microphone.");
+      return;
+    }
+
+    if (event.error === "audio-capture") {
+      setSpeechStatus("No microphone was available for browser dictation.");
+      return;
+    }
+
+    setSpeechStatus(`Dictation error: ${event.error}.`);
+  };
+
+  speechRecognition.onresult = (event) => {
+    let finalTranscript = "";
+    let interimTranscript = "";
+
+    for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      const transcript = event.results[i][0]?.transcript || "";
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript;
+      } else {
+        interimTranscript += transcript;
+      }
+    }
+
+    if (finalTranscript.trim()) {
+      appendTranscriptToNote(finalTranscript);
+      setSpeechStatus("Latest phrase added to the note. Keep speaking or stop dictation.");
+      return;
+    }
+
+    if (interimTranscript.trim()) {
+      setSpeechStatus(`Hearing: "${interimTranscript.trim()}"`);
+    }
+  };
+}
+
+initSpeechRecognition();
+
+function noteFilename(dateStr) {
+  return `${dateStr}.txt`;
+}
+
+function parseDiaryDate(dateStr) {
+  const [yearPart, monthPart, dayPart] = dateStr.split("-").map(Number);
+  return new Date(yearPart, monthPart - 1, dayPart);
+}
+
+function refreshAllNotePreviews() {
+  for (const [dateStr, dayEl] of dayElements.entries()) {
+    updateDayNoteUI(dayEl, notesByDate[dateStr] || "");
+  }
+}
+
+async function loadAllNotes() {
+  const response = await fetch("/api/notes", { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error("Could not load notes index");
+  }
+
+  const payload = await response.json();
+  Object.keys(notesByDate).forEach((key) => delete notesByDate[key]);
+
+  for (const [dateStr, note] of Object.entries(payload)) {
+    const normalized = normalizeNote(String(note || ""));
+    if (noteHasContent(normalized)) {
+      notesByDate[dateStr] = normalized;
+    }
+  }
+
+  refreshAllNotePreviews();
+
+  if (currentDateStr) {
+    dayNoteInput.value = notesByDate[currentDateStr] || "";
+  }
+}
+
+async function saveNoteFile(dateStr, note) {
+  const response = await fetch(`/api/notes/${dateStr}`, {
+    method: "PUT",
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+    body: note,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not save ${noteFilename(dateStr)}`);
+  }
+}
+
+async function deleteNoteFile(dateStr) {
+  const response = await fetch(`/api/notes/${dateStr}`, {
+    method: "DELETE",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Could not delete ${noteFilename(dateStr)}`);
+  }
+}
+
+async function persistNoteForDate(dateStr) {
+  if (!dateStr) return;
+
+  const note = notesByDate[dateStr] || "";
+  if (noteHasContent(note)) {
+    await saveNoteFile(dateStr, note);
+  } else {
+    await deleteNoteFile(dateStr);
+  }
+
+  lastSavedRevision = noteSaveRevision;
+  setNotesStatus(`Saved ${noteFilename(dateStr)}.`);
+}
+
+function primeNotesFromFolder() {
+  if (window.location.protocol === "file:") {
+    setNotesStatus("Open this diary through http://127.0.0.1:8765, not as a file:// page. Notes cannot load or save over file://.");
+    setLaunchHelpStatus("You opened this page as <code>file://</code>. Use <code>start_diary.cmd</code>, then open <code>http://127.0.0.1:8765</code>.", true);
+    setNotesInputEnabled(false);
+    return;
+  }
+
+  setNotesStatus("Notes load automatically from notes/YYYY-MM-DD.txt.");
+  setLaunchHelpStatus(`Connected through <code>${window.location.origin}</code>. This is the correct way to run the diary.`);
+  setNotesInputEnabled(true);
+  loadAllNotes()
+    .then(() => {
+      setNotesStatus("Loaded notes from notes/YYYY-MM-DD.txt.");
+    })
+    .catch(() => {
+      setNotesStatus("Failed to load notes from the notes folder.");
+    });
+}
 
 // async function findAudioForDate(dateStr) {
 //   for (const ext of AUDIO_EXTS) {
@@ -81,7 +367,11 @@ monthNames.forEach((name, month) => {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const dayEl = document.createElement("div");
     dayEl.className = "day";
-    dayEl.textContent = day;
+    dayEl.innerHTML = `
+      <span class="day-number">${day}</span>
+      <span class="day-note-preview"></span>
+    `;
+    dayElements.set(dateStr, dayEl);
 
     if (dateStr === todayStr) {
         dayEl.classList.add("today");
@@ -93,10 +383,16 @@ monthNames.forEach((name, month) => {
         dayEl.classList.add("future");
     }
 
+    updateDayNoteUI(dayEl, notesByDate[dateStr] || "");
+
     dayEl.onclick = () => {
         currentDayEl = dayEl;
         currentDateStr = dateStr;
+        stopSpeechRecognition();
+        hideSpeechStatus();
         playerDate.textContent = dateStr;
+        dayNoteInput.value = notesByDate[dateStr] || "";
+        hideAudioStatus();
 
         // Clear previous sources
         audio.pause();
@@ -107,12 +403,13 @@ monthNames.forEach((name, month) => {
         audio.oncanplay = () => {
             hasPlayableAudio = true;
             dayEl.classList.add("has-audio");
+            hideAudioStatus();
         };
         audio.onerror = () => {
             if (!hasPlayableAudio) {
-                showNoAudioMessage();
+                showAudioStatus("No saved audio for this day yet. Use the addendum below if you forgot to mention something.");
             }
-        }
+        };
         // Add sources in priority order
         AUDIO_EXTS.forEach(ext => {
             const source = document.createElement("source");
@@ -179,6 +476,46 @@ recordBtn.onclick = async () => {
   };
 
   recorder.start();
+};
+
+dayNoteInput.oninput = () => {
+  if (!currentDateStr) return;
+  const dateStr = currentDateStr;
+  setNoteForDate(dateStr, dayNoteInput.value);
+  noteSaveRevision += 1;
+
+  clearTimeout(noteSaveTimeout);
+  noteSaveTimeout = setTimeout(async () => {
+    try {
+      await persistNoteForDate(dateStr);
+    } catch {
+      setNotesStatus(`Failed to save ${noteFilename(dateStr)}.`);
+    }
+  }, 250);
+};
+
+dayNoteInput.onblur = async () => {
+  if (!currentDateStr) return;
+
+  clearTimeout(noteSaveTimeout);
+  try {
+    await persistNoteForDate(currentDateStr);
+  } catch {
+    setNotesStatus(`Failed to save ${noteFilename(currentDateStr)}.`);
+  }
+};
+
+speechBtn.onclick = () => {
+  if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
+
+  if (speechListening) {
+    stopSpeechRecognition();
+    return;
+  }
+
+  hideSpeechStatus();
+  speechRecognition.lang = navigator.language || "en-US";
+  speechRecognition.start();
 };
 
 const analyzeBtn = document.getElementById("analyze-btn");
@@ -302,7 +639,7 @@ analyzeBtn.onclick = async () => {
 
   // Std deviation
   const variance = count > 1
-    ? durations.reduce((s, d) => s + (d - avgDuration) ** 2, 0) / (count - 1)
+    ? durations.reduce((sum, d) => sum + (d - avgDuration) ** 2, 0) / (count - 1)
     : 0;
   const stdDev = Math.sqrt(variance);
 
@@ -320,13 +657,14 @@ analyzeBtn.onclick = async () => {
   drawDistributionChart(durations, avgDuration);
   drawCDFChart(durations);
   drawDayOfWeekChart(entries);
+  drawMonthlyAverageChart(entries);
 };
 
 function computeStreaks(recordedDates) {
   let longest = 0, current = 0, prev = null;
   const sorted = [...recordedDates].sort();
   for (const d of sorted) {
-    const dt = new Date(d);
+    const dt = parseDiaryDate(d);
     if (prev) {
       const gap = (dt - prev) / 86400000;
       current = gap === 1 ? current + 1 : 1;
@@ -338,9 +676,12 @@ function computeStreaks(recordedDates) {
   }
   // check if streak is still active (last date is yesterday or today)
   const lastDate = sorted[sorted.length - 1];
-  const yesterday = new Date(todayStr);
+  const yesterday = parseDiaryDate(todayStr);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yStr = yesterday.toISOString().slice(0, 10);
+  const yStr =
+    yesterday.getFullYear() + "-" +
+    String(yesterday.getMonth() + 1).padStart(2, "0") + "-" +
+    String(yesterday.getDate()).padStart(2, "0");
   if (lastDate !== yStr && lastDate !== todayStr) current = 0;
   return { longest, current };
 }
@@ -558,7 +899,7 @@ function drawDayOfWeekChart(entries) {
   const sums = new Array(7).fill(0);
   const counts = new Array(7).fill(0);
   entries.forEach(({ date, duration }) => {
-    const dow = new Date(date).getDay();
+    const dow = parseDiaryDate(date).getDay();
     sums[dow] += duration;
     counts[dow]++;
   });
@@ -608,7 +949,94 @@ function drawDayOfWeekChart(entries) {
 
   drawAxes(ctx, PAD, W, H, chartH);
 }
+
+function drawMonthlyAverageChart(entries) {
+  const canvas = document.getElementById("stats-monthly");
+  if (!canvas || entries.length === 0) return;
+  canvas.style.display = "block";
+
+  const PAD = { top: 24, right: 20, bottom: 40, left: 50 };
+  const { ctx, W, H, chartW, chartH } = chartBase(canvas, PAD);
+
+  const sums = new Array(12).fill(0);
+  const counts = new Array(12).fill(0);
+  entries.forEach(({ date, duration }) => {
+    const month = Number(date.slice(5, 7)) - 1;
+    sums[month] += duration;
+    counts[month] += 1;
+  });
+
+  const avgs = sums.map((sum, i) => counts[i] > 0 ? sum / counts[i] : 0);
+  const maxAvg = Math.max(...avgs);
+  if (maxAvg <= 0) return;
+
+  ctx.fillStyle = "#ccc";
+  ctx.font = "bold 11px Inter, sans-serif";
+  ctx.textAlign = "left";
+  ctx.fillText("Average Length by Month", PAD.left, PAD.top - 8);
+
+  drawGridlines(ctx, PAD, chartW, chartH, maxAvg / 60, 4);
+  for (let g = 0; g <= 4; g++) {
+    const y = PAD.top + chartH - (g / 4) * chartH;
+    ctx.fillStyle = "#888";
+    ctx.font = "10px Inter, sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillText(`${Math.round((g / 4) * maxAvg / 60)}m`, PAD.left - 4, y + 3);
+  }
+
+  const barW = chartW / 12;
+  avgs.forEach((avg, i) => {
+    if (avg === 0) return;
+    const barH = (avg / maxAvg) * chartH;
+    const x = PAD.left + i * barW;
+    const y = PAD.top + chartH - barH;
+    const hue = 190 + i * 9;
+    ctx.fillStyle = `hsl(${hue}, 70%, 56%)`;
+    ctx.fillRect(x + 4, y, barW - 8, barH);
+
+    ctx.fillStyle = "#eee";
+    ctx.font = "9px Inter, sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(formatTime(avg), x + barW / 2, y - 3);
+  });
+
+  ctx.fillStyle = "#aaa";
+  ctx.font = "11px Inter, sans-serif";
+  ctx.textAlign = "center";
+  monthNames.forEach((month, i) => {
+    const x = PAD.left + i * barW + barW / 2;
+    ctx.fillText(month.slice(0, 3), x, H - PAD.bottom + 14);
+  });
+
+  drawAxes(ctx, PAD, W, H, chartH);
+}
 closeBtn.onclick = () => {
   audio.pause();
+  stopSpeechRecognition();
+  hideSpeechStatus();
   player.classList.add("hidden");
 };
+
+window.addEventListener("beforeunload", () => {
+  if (!currentDateStr || lastSavedRevision === noteSaveRevision) return;
+
+  const note = notesByDate[currentDateStr] || "";
+  const url = `/api/notes/${currentDateStr}`;
+
+  try {
+    if (noteHasContent(note)) {
+      fetch(url, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "text/plain; charset=utf-8",
+        },
+        body: note,
+        keepalive: true,
+      }).catch(() => {});
+    } else {
+      fetch(url, { method: "DELETE", keepalive: true }).catch(() => {});
+    }
+  } catch {}
+});
+
+primeNotesFromFolder();
