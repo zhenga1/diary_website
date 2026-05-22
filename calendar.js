@@ -10,6 +10,7 @@ const dayNoteInput = document.getElementById("day-note");
 const notesDirStatus = document.getElementById("notes-dir-status");
 const recordBtn = document.getElementById("record-btn");
 const speechBtn = document.getElementById("speech-btn");
+const speechAudioBtn = document.getElementById("speech-audio-btn");
 const speechStatus = document.getElementById("speech-status");
 
 let recorder = null;
@@ -19,6 +20,8 @@ let currentDayEl = null;
 let speechRecognition = null;
 let speechListening = false;
 let speechSupported = false;
+let transcribingSavedAudio = false;
+let suppressSpeechStoppedStatus = false;
 
 const dayElements = new Map();
 const notesByDate = {};
@@ -39,6 +42,7 @@ const SpeechRecognitionCtor =
 
 if (!SpeechRecognitionCtor) {
   speechBtn.disabled = true;
+  speechAudioBtn.disabled = true;
   speechBtn.textContent = "Dictation unavailable";
 } else {
   speechSupported = true;
@@ -131,6 +135,7 @@ function setLaunchHelpStatus(message, isWarning = false) {
 function setNotesInputEnabled(enabled) {
   dayNoteInput.disabled = !enabled;
   speechBtn.disabled = !enabled || !speechSupported;
+  speechAudioBtn.disabled = !enabled || !speechSupported;
   if (!enabled) {
     stopSpeechRecognition();
     dayNoteInput.value = "";
@@ -149,7 +154,9 @@ function hideSpeechStatus() {
 
 function updateSpeechButton() {
   speechBtn.classList.toggle("is-listening", speechListening);
-  speechBtn.textContent = speechListening ? "Stop Dictation" : "Start Dictation";
+  speechAudioBtn.classList.toggle("is-listening", transcribingSavedAudio);
+  speechBtn.textContent = speechListening && !transcribingSavedAudio ? "Stop Dictation" : "Start Dictation";
+  speechAudioBtn.textContent = transcribingSavedAudio ? "Stop Audio Transcription" : "Transcribe Saved Audio";
 }
 
 function appendTranscriptToNote(transcript) {
@@ -162,29 +169,163 @@ function appendTranscriptToNote(transcript) {
 }
 
 function stopSpeechRecognition() {
+  transcribingSavedAudio = false;
+  audio.onended = null;
+  updateSpeechButton();
   if (!speechRecognition || !speechListening) return;
+  suppressSpeechStoppedStatus = true;
   speechRecognition.stop();
+}
+
+async function startSavedAudioTranscription() {
+  console.log("[saved-audio-transcription] start", {
+    hasSpeechRecognition: Boolean(speechRecognition),
+    currentDateStr,
+    noteInputDisabled: dayNoteInput.disabled,
+    currentSrc: audio.currentSrc,
+    src: audio.src,
+    readyState: audio.readyState,
+    paused: audio.paused,
+  });
+
+  if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
+
+  const playableSource = audio.currentSrc || audio.src;
+  console.log("[saved-audio-transcription] resolved playable source", {
+    playableSource,
+  });
+
+  if (!playableSource) {
+    console.log("[saved-audio-transcription] abort: no playable source");
+    setSpeechStatus("No saved audio is loaded for this day yet.");
+    return;
+  }
+
+  transcribingSavedAudio = true;
+  console.log("[saved-audio-transcription] marked transcribingSavedAudio=true");
+  updateSpeechButton();
+  hideSpeechStatus();
+  speechRecognition.lang = navigator.language || "en-US";
+  console.log("[saved-audio-transcription] configured speech recognition", {
+    lang: speechRecognition.lang,
+  });
+
+  audio.pause();
+  audio.currentTime = 0;
+  console.log("[saved-audio-transcription] reset audio before playback", {
+    currentTime: audio.currentTime,
+    paused: audio.paused,
+  });
+  audio.onended = () => {
+    console.log("[saved-audio-transcription] audio ended", {
+      transcribingSavedAudio,
+      currentTime: audio.currentTime,
+      duration: audio.duration,
+    });
+    if (!transcribingSavedAudio) return;
+    transcribingSavedAudio = false;
+    console.log("[saved-audio-transcription] marked transcribingSavedAudio=false from onended");
+    updateSpeechButton();
+    stopSpeechRecognition();
+    setSpeechStatus("Saved-audio transcription finished. Review the note text for accuracy.");
+  };
+
+  try {
+    console.log("[saved-audio-transcription] attempting audio.play()");
+    await audio.play();
+    console.log("[saved-audio-transcription] audio.play() resolved", {
+      currentTime: audio.currentTime,
+      paused: audio.paused,
+      readyState: audio.readyState,
+    });
+  } catch {
+    console.log("[saved-audio-transcription] audio.play() failed", {
+      currentTime: audio.currentTime,
+      paused: audio.paused,
+      readyState: audio.readyState,
+    });
+    transcribingSavedAudio = false;
+    updateSpeechButton();
+    setSpeechStatus("Audio playback could not start. Click play once, then try saved-audio transcription again.");
+    return;
+  }
+
+  try {
+    console.log("[saved-audio-transcription] attempting speechRecognition.start()", {
+      speechListening,
+      transcribingSavedAudio,
+    });
+    speechRecognition.start();
+    console.log("[saved-audio-transcription] speechRecognition.start() returned without throwing");
+    setSpeechStatus("Playing the saved entry and listening for dictated text. Speakers or Stereo Mix work better than headphones.");
+  } catch (error) {
+    console.log("[saved-audio-transcription] speechRecognition.start() threw", {
+      error,
+      speechListening,
+      transcribingSavedAudio,
+    });
+    transcribingSavedAudio = false;
+    updateSpeechButton();
+    audio.pause();
+    setSpeechStatus("Saved-audio transcription could not start. If dictation is already active, stop it and try again.");
+  }
 }
 
 function initSpeechRecognition() {
   if (!speechRecognition) return;
 
   speechRecognition.onstart = () => {
+    console.log("[speech-recognition] onstart", {
+      currentDateStr,
+      speechListening,
+      transcribingSavedAudio,
+      lang: speechRecognition.lang,
+    });
     speechListening = true;
     updateSpeechButton();
     setSpeechStatus("Listening. Speak now and your words will be added to the note.");
   };
 
   speechRecognition.onend = () => {
+    console.log("[speech-recognition] onend", {
+      currentDateStr,
+      speechListening,
+      transcribingSavedAudio,
+      suppressSpeechStoppedStatus,
+      audioCurrentTime: audio.currentTime,
+      audioDuration: audio.duration,
+      audioPaused: audio.paused,
+    });
     speechListening = false;
+    transcribingSavedAudio = false;
+    audio.onended = null;
     updateSpeechButton();
+    if (suppressSpeechStoppedStatus) {
+      console.log("[speech-recognition] onend suppressed status update");
+      suppressSpeechStoppedStatus = false;
+      return;
+    }
     if (!speechStatus.textContent.includes("added")) {
+      console.log("[speech-recognition] onend setting default stopped status");
       setSpeechStatus("Dictation stopped.");
     }
   };
 
   speechRecognition.onerror = (event) => {
+    console.log("[speech-recognition] onerror", {
+      error: event.error,
+      message: event.message,
+      currentDateStr,
+      speechListening,
+      transcribingSavedAudio,
+      audioCurrentTime: audio.currentTime,
+      audioDuration: audio.duration,
+      audioPaused: audio.paused,
+    });
     speechListening = false;
+    transcribingSavedAudio = false;
+    audio.onended = null;
+    audio.pause();
     updateSpeechButton();
 
     if (event.error === "not-allowed" || event.error === "service-not-allowed") {
@@ -206,11 +347,23 @@ function initSpeechRecognition() {
   };
 
   speechRecognition.onresult = (event) => {
+    console.log("[speech-recognition] onresult received", {
+      resultIndex: event.resultIndex,
+      resultsLength: event.results.length,
+      currentDateStr,
+      transcribingSavedAudio,
+    });
     let finalTranscript = "";
     let interimTranscript = "";
 
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
       const transcript = event.results[i][0]?.transcript || "";
+      console.log("[speech-recognition] result item", {
+        index: i,
+        isFinal: event.results[i].isFinal,
+        transcript,
+        confidence: event.results[i][0]?.confidence,
+      });
       if (event.results[i].isFinal) {
         finalTranscript += transcript;
       } else {
@@ -219,12 +372,18 @@ function initSpeechRecognition() {
     }
 
     if (finalTranscript.trim()) {
+      console.log("[speech-recognition] final transcript", {
+        finalTranscript: finalTranscript.trim(),
+      });
       appendTranscriptToNote(finalTranscript);
       setSpeechStatus("Latest phrase added to the note. Keep speaking or stop dictation.");
       return;
     }
 
     if (interimTranscript.trim()) {
+      console.log("[speech-recognition] interim transcript", {
+        interimTranscript: interimTranscript.trim(),
+      });
       setSpeechStatus(`Hearing: "${interimTranscript.trim()}"`);
     }
   };
@@ -390,6 +549,7 @@ monthNames.forEach((name, month) => {
         currentDateStr = dateStr;
         stopSpeechRecognition();
         hideSpeechStatus();
+        speechAudioBtn.disabled = !speechSupported;
         playerDate.textContent = dateStr;
         dayNoteInput.value = notesByDate[dateStr] || "";
         hideAudioStatus();
@@ -403,10 +563,12 @@ monthNames.forEach((name, month) => {
         audio.oncanplay = () => {
             hasPlayableAudio = true;
             dayEl.classList.add("has-audio");
+            speechAudioBtn.disabled = dayNoteInput.disabled || !speechSupported;
             hideAudioStatus();
         };
         audio.onerror = () => {
             if (!hasPlayableAudio) {
+                speechAudioBtn.disabled = true;
                 showAudioStatus("No saved audio for this day yet. Use the addendum below if you forgot to mention something.");
             }
         };
@@ -508,7 +670,7 @@ dayNoteInput.onblur = async () => {
 speechBtn.onclick = () => {
   if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
 
-  if (speechListening) {
+  if (speechListening || transcribingSavedAudio) {
     stopSpeechRecognition();
     return;
   }
@@ -516,6 +678,25 @@ speechBtn.onclick = () => {
   hideSpeechStatus();
   speechRecognition.lang = navigator.language || "en-US";
   speechRecognition.start();
+};
+
+
+speechAudioBtn.onclick = async () => {
+  console.log("Speech AUDIO button || Speech audio button clicked. Listening:", speechListening, "Transcribing saved audio:", transcribingSavedAudio);
+  
+  if (!speechRecognition || !currentDateStr || dayNoteInput.disabled) return;
+  console.log("Speech AUDIO button || Speech Recognition available")
+  if (speechListening || transcribingSavedAudio) {
+    stopSpeechRecognition();
+    audio.pause();
+    setSpeechStatus("Speech AUDIO button || Saved-audio transcription stopped.");
+    return;
+  }
+
+   console.log("Speech AUDIO button || Preparing to start speech recognition. ")
+
+
+  await startSavedAudioTranscription();
 };
 
 const analyzeBtn = document.getElementById("analyze-btn");
@@ -1014,6 +1195,7 @@ closeBtn.onclick = () => {
   audio.pause();
   stopSpeechRecognition();
   hideSpeechStatus();
+  speechAudioBtn.disabled = !speechSupported;
   player.classList.add("hidden");
 };
 

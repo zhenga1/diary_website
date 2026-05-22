@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<link rel="icon" href="data:,">
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -57,7 +58,9 @@
         ></textarea>
         <div class="speech-tools">
           <button id="speech-btn" type="button" class="secondary-btn">Start Dictation</button>
+          <button id="speech-audio-btn" type="button" class="secondary-btn">Transcribe Saved Audio</button>
           <p id="speech-status" class="player-status hidden" aria-live="polite"></p>
+          <p class="note-help">Saved-audio transcription uses browser dictation and works best through speakers or a loopback mic input such as Stereo Mix.</p>
         </div>
         <p class="note-help">Saved automatically to <code>notes/YYYY-MM-DD.txt</code>.</p>
         <button id="record-btn">🎙 Record</button>
