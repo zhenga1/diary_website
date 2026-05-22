@@ -21,7 +21,24 @@
     <canvas id="stats-chart" width="600" height="220" style="display:none; margin:12px auto 0; max-width:100%;"></canvas>
     <canvas id="stats-cdf"   width="600" height="180" style="display:none; margin:8px auto 0; max-width:100%;"></canvas>
     <canvas id="stats-dow"   width="600" height="180" style="display:none; margin:8px auto 0; max-width:100%;"></canvas>
+    <canvas id="stats-monthly" width="600" height="220" style="display:none; margin:8px auto 0; max-width:100%;"></canvas>
   </div>
+
+  <div id="notes-config" class="notes-config">
+    <p id="notes-dir-status">Notes load automatically from the local <code>notes/</code> folder.</p>
+  </div>
+
+  <section id="launch-help" class="launch-help">
+    <h2>How To Open This Diary</h2>
+    <p>This page needs a local server so notes can load from <code>notes/</code> and save back to the same folder.</p>
+    <ol class="launch-steps">
+      <li>In the diary folder, run <code>start_diary.cmd</code>.</li>
+      <li>If that is not available, run <code>python server.py</code>.</li>
+      <li>Open <a href="http://127.0.0.1:8765">http://127.0.0.1:8765</a>.</li>
+      <li>Do not open <code>index.html</code> directly as a <code>file://</code> page.</li>
+    </ol>
+    <p id="launch-help-status" class="launch-help-status">Expected app address: <code>http://127.0.0.1:8765</code></p>
+  </section>
 
   <main id="months"></main>
 
@@ -30,7 +47,19 @@
     <div class="player-card">
         <button id="close">×</button>
         <p id="player-date"></p>
+        <p id="player-audio-status" class="player-status hidden"></p>
         <audio id="audio" controls ></audio>
+        <label class="note-label" for="day-note">Recording addendum</label>
+        <textarea
+          id="day-note"
+          rows="5"
+          placeholder="Add anything you forgot to say in the recording."
+        ></textarea>
+        <div class="speech-tools">
+          <button id="speech-btn" type="button" class="secondary-btn">Start Dictation</button>
+          <p id="speech-status" class="player-status hidden" aria-live="polite"></p>
+        </div>
+        <p class="note-help">Saved automatically to <code>notes/YYYY-MM-DD.txt</code>.</p>
         <button id="record-btn">🎙 Record</button>
         <a id="download-link" style="display:none">⬇ Download</a>
     </div>
