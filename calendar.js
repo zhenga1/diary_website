@@ -869,19 +869,32 @@ function drawVLine(ctx, x, PAD, chartH, color, label) {
   ctx.lineTo(x, PAD.top + chartH);
   ctx.stroke();
   ctx.setLineDash([]);
-  ctx.fillStyle = color;
-  ctx.font = "10px Inter, sans-serif";
+
+  ctx.font = "bold 10px Inter, sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText(label, x, PAD.top - 4);
+  const labelY = PAD.top + 12;
+  const textW = ctx.measureText(label).width;
+  ctx.fillStyle = "rgba(26, 26, 46, 0.85)";
+  ctx.fillRect(x - textW / 2 - 4, labelY - 10, textW + 8, 13);
+  ctx.fillStyle = color;
+  ctx.fillText(label, x, labelY);
 }
 
 function xLabelsMinutes(ctx, PAD, H, chartW, maxSec) {
   ctx.fillStyle = "#aaa";
   ctx.font = "10px Inter, sans-serif";
   ctx.textAlign = "center";
-  for (let s = 0; s <= maxSec; s += 60) {
+
+  const totalMinutes = maxSec / 60;
+  const minLabelSpacingPx = 34;
+  const maxLabels = Math.max(1, Math.floor(chartW / minLabelSpacingPx));
+  const niceSteps = [1, 2, 5, 10, 15, 20, 30, 60, 120];
+  let stepMin = niceSteps.find(step => totalMinutes / step <= maxLabels) || niceSteps[niceSteps.length - 1];
+
+  for (let m = 0; m <= totalMinutes + 1e-9; m += stepMin) {
+    const s = m * 60;
     const x = PAD.left + (s / maxSec) * chartW;
-    ctx.fillText(`${s / 60}m`, x, H - PAD.bottom + 14);
+    ctx.fillText(`${Math.round(m)}m`, x, H - PAD.bottom + 14);
   }
 }
 
